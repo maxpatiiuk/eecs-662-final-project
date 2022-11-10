@@ -3,7 +3,7 @@ separate :: [[Char]] -> [Char]
 separate [] = []
 separate (x : xs) = x ++ "\n" ++ separate xs
 
--- The function to run a function on each of the provided inputs and inspect the results
+-- Run a function on each of the provided inputs and inspect the results
 -- runTest :: (a -> b) -> [a] -> [Char]
 runTest function inputs = separate $ map (\(a, b) -> show a ++ "   ->   " ++ show b) $ zip inputs $ map function inputs
 
@@ -54,9 +54,12 @@ inputs = [
       (Num 1)
   ]
 
--- Actually running the function (evalDyn and evalStat in this case)
+-- Running the tests (evalDyn and evalStat in this case)
 evalDyn_outputs = runTest (\x -> evalDyn [] x) inputs
 evalStat_outputs = runTest (\x -> evalStat [] x) inputs
+
+-- NOTE: the tests do not check outputs yet. They only print the outputs
+-- It would be good to modify this to automatically check the outputs
 
 -- One more example
 evalTerm_inputs = [
