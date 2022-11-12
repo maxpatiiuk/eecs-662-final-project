@@ -20,9 +20,9 @@ data VALUELANG where
   ArrayV :: [VALUELANG] -> VALUELANG
   deriving (Show,Eq)
 
--- T ::= num | true | false | id | T + T | T - T | T * T | T / T
+-- T ::= num | true | false | id | T + T | T - T | T * T | T / T 
 -- |  | bind id T T | if T then T else T | T && T | T || T | T <= T | isZero T
--- lambda (id:TY) in T | (T) (T)
+-- lambda (id:TY) in T | (T) (T) 
 
 data TERMLANG = Num Int
               | Plus TERMLANG TERMLANG
@@ -55,59 +55,59 @@ evalM e (Num x) = if x<0 then Nothing else Just (NumV x)
 evalM e (Plus l r) = do {
                        (NumV l') <- evalM e l;
                        (NumV r') <- evalM e r;
-                       return (NumV (l'+r') )
+                       return $ NumV $ l'+r'
                      }
 evalM e (Minus l r) = do {
                         (NumV l') <- evalM e l;
                         (NumV r') <- evalM e r;
                         if (l'-r') < 0
                         then Nothing
-                        else return (NumV (l'-r') )
+                        else return $ NumV $ l'-r'
                       }
 evalM e (Mult l r) = do {
                        (NumV l') <- evalM e l;
                        (NumV r') <- evalM e r;
-                       return (NumV (l'*r') )
+                       return $ NumV $ l'*r'
                      }
 evalM e (Div l r) = do {
                       (NumV l') <- evalM e l;
                       (NumV r') <- evalM e r;
                       if r' == 0
                       then Nothing
-                      else return ( NumV(l' `div` r') )
+                      else return $ NumV $ l' `div` r'
                     }
 evalM e (Boolean b) = Just (BooleanV b)
 evalM e (And l r) = do {
                       (BooleanV l') <- evalM e l;
                       (BooleanV r') <- evalM e r;
-                      return (BooleanV (l' && r'))
+                      return $ BooleanV $ l' && r'
                     }
 evalM e (Or l r) = do {
                      (BooleanV l') <- evalM e l;
                      (BooleanV r') <- evalM e r;
-                     return (BooleanV (l' || r'))
+                     return $ BooleanV $ l' || r'
                    }
 evalM e (Leq l r) = do {
                       (NumV l') <- evalM e l;
                       (NumV r') <- evalM e r;
-                      return (BooleanV (l' <= r'))
+                      return $ BooleanV $ l' <= r'
                     }
 evalM e (IsZero x) = do {
                        (NumV x') <- evalM e x;
-                       return (BooleanV (x' == 0))
+                       return $ BooleanV $ x' == 0
                      }
 evalM e (If c t e') = do {
                         (BooleanV c') <- evalM e c;
                         t' <- evalM e t;
                         e'' <- evalM e e';
-                        return (if c' then t' else e'')
+                        return $ if c' then t' else e''
                       }
 evalM e (Bind i v b) = do {
                          v' <- evalM e v;
                          evalM ((i,v'):e) b
                        }
 evalM e (Id i) = lookup i e
-evalM e (Lambda i d b) = return (ClosureV i b e)
+evalM e (Lambda i d b) = return $ ClosureV i b e
 evalM e (App f a) = do {
                       (ClosureV i b j) <- evalM e f;
                       v <- evalM e a;
@@ -115,7 +115,7 @@ evalM e (App f a) = do {
                     }
 evalM e (Array a) = do {
                       a' <- liftMaybe $ map (\a -> evalM e a) a;
-                      return (ArrayV a')
+                      return $ ArrayV a'
                     }
 evalM e (Take n a) = do {
                        (NumV n') <- evalM e n;
@@ -134,7 +134,7 @@ evalM e (Length a) = do {
 evalM e (At i a) = do {
                        (NumV i') <- evalM e i;
                        (ArrayV a') <- evalM e a;
-                       return (a' !! i')
+                       return $ a' !! i'
                      }
 
 liftMaybe :: [Maybe a] -> Maybe [a]
@@ -142,7 +142,7 @@ liftMaybe [] = Just []
 liftMaybe (i:a) = do {
                     i' <- i;
                     a' <- liftMaybe a;
-                    return (i':a')
+                    return $ i':a'
                   }
 
 
@@ -201,7 +201,7 @@ typeofM c (Bind i v b) = do {
 typeofM c (Id i) = lookup i c
 typeofM c (Lambda i d b) = do {
                              r <- typeofM ((i,d):c) b;
-                             return (d :->: r)
+                             return $ d :->: r
                            }
 typeofM c (App f a) = do {
                         a' <- typeofM c a;
@@ -210,17 +210,17 @@ typeofM c (App f a) = do {
                       }
 typeofM c (Array a) = do {
                         a' <- typeofM c $ head a;
-                        return (TArray a');
+                        return $ TArray a'
                       }
 typeofM c (Take n a) = do {
                          TNum <- typeofM c n;
                          (TArray a') <- typeofM c a;
-                         return (TArray a')
+                         return $ TArray a'
                        }
 typeofM c (Drop n a) = do {
                          TNum <- typeofM c n;
                          (TArray a') <- typeofM c a;
-                         return (TArray a')
+                         return $ TArray a'
                        }
 typeofM c (Length a) = do {
                          TNum <- typeofM c a;
