@@ -9,6 +9,7 @@ import Control.Monad
 
 data TYPELANG = TNum
               | TBool
+              | TArray TYPELANG
               | TYPELANG :->: TYPELANG
               deriving (Show,Eq)
 
@@ -16,6 +17,7 @@ data VALUELANG where
   NumV :: Int -> VALUELANG
   BooleanV :: Bool -> VALUELANG
   ClosureV :: String -> TERMLANG -> ValueEnv -> VALUELANG
+  ArrayV :: [VALUELANG] -> VALUELANG
   deriving (Show,Eq)
 
 -- T ::= num | true | false | id | T + T | T - T | T * T | T / T
@@ -37,6 +39,11 @@ data TERMLANG = Num Int
               | Id String
               | Lambda String TYPELANG TERMLANG
               | App TERMLANG TERMLANG
+              | Array [TERMLANG]
+              | Take TERMLANG TERMLANG
+              | Drop TERMLANG TERMLANG
+              | Length TERMLANG
+              | At TERMLANG TERMLANG
                 deriving (Show,Eq)
 
 type ValueEnv = [(String, VALUELANG)]
@@ -106,6 +113,37 @@ evalM e (App f a) = do {
                       v <- evalM e a;
                       evalM ((i,v):j) b
                     }
+evalM e (Array a) = do {
+                      a' <- liftMaybe $ map (\a -> evalM e a) a;
+                      return (ArrayV a')
+                    }
+evalM e (Take n a) = do {
+                       (NumV n') <- evalM e n;
+                       (ArrayV a') <- evalM e a;
+                       return $ ArrayV $ take n' a'
+                     }
+evalM e (Drop n a) = do {
+                       (NumV n') <- evalM e n;
+                       (ArrayV a') <- evalM e a;
+                       return $ ArrayV $ drop n' a'
+                     }
+evalM e (Length a) = do {
+                       (ArrayV a') <- evalM e a;
+                       return $ NumV $ length a'
+                     }
+evalM e (At i a) = do {
+                       (NumV i') <- evalM e i;
+                       (ArrayV a') <- evalM e a;
+                       return (a' !! i')
+                     }
+
+liftMaybe :: [Maybe a] -> Maybe [a]
+liftMaybe [] = Just []
+liftMaybe (i:a) = do {
+                    i' <- i;
+                    a' <- liftMaybe a;
+                    return (i':a')
+                  }
 
 
 typeofM :: Cont -> TERMLANG -> Maybe TYPELANG
@@ -170,4 +208,27 @@ typeofM c (App f a) = do {
                         d :->: r <- typeofM c f;
                         if a'==d then return r else Nothing
                       }
+typeofM c (Array a) = do {
+                        a' <- typeofM c $ head a;
+                        return (TArray a');
+                      }
+typeofM c (Take n a) = do {
+                         TNum <- typeofM c n;
+                         (TArray a') <- typeofM c a;
+                         return (TArray a')
+                       }
+typeofM c (Drop n a) = do {
+                         TNum <- typeofM c n;
+                         (TArray a') <- typeofM c a;
+                         return (TArray a')
+                       }
+typeofM c (Length a) = do {
+                         TNum <- typeofM c a;
+                         return TNum
+                       }
+typeofM c (At i a) = do {
+                       TNum <- typeofM c i;
+                       (TArray a') <- typeofM c a;
+                       return a'
+                     }
 
