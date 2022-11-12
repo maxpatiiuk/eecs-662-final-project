@@ -44,6 +44,12 @@ data TERMLANG = Num Int
               | Drop TERMLANG TERMLANG
               | Length TERMLANG
               | At TERMLANG TERMLANG
+              | Concat TERMLANG TERMLANG
+              | Replicate TERMLANG TERMLANG
+              | First TERMLANG
+              | Second TERMLANG
+              | Last TERMLANG
+              | Reverse TERMLANG
                 deriving (Show,Eq)
 
 type ValueEnv = [(String, VALUELANG)]
@@ -136,6 +142,33 @@ evalM e (At i a) = do {
                        (ArrayV a') <- evalM e a;
                        return $ a' !! i'
                      }
+evalM e (Concat l r) = do {
+                         (ArrayV l') <- evalM e l;
+                         (ArrayV r') <- evalM e r;
+                         return $ ArrayV $ l' ++ r'
+                       }
+evalM e (Replicate n v) = do {
+                            (NumV n') <- evalM e n;
+                            v' <- evalM e v;
+                            return $ ArrayV $ replicate n' v'
+                          }
+evalM e (First a) = do {
+                      (ArrayV a') <- evalM e a;
+                      return $ a' !! 0;
+                    }
+evalM e (Second a) = do {
+                       (ArrayV a') <- evalM e a;
+                       -- Indexing is 0 based
+                       return $ a' !! 1;
+                     }
+evalM e (Last a) = do {
+                     (ArrayV a') <- evalM e a;
+                     return $ last a';
+                   }
+evalM e (Reverse a) = do {
+                        (ArrayV a') <- evalM e a;
+                        return $ ArrayV $ reverse a';
+                      }
 
 liftMaybe :: [Maybe a] -> Maybe [a]
 liftMaybe [] = Just []
@@ -231,4 +264,29 @@ typeofM c (At i a) = do {
                        (TArray a') <- typeofM c a;
                        return a'
                      }
-
+typeofM c (Concat l r) = do {
+                       (TArray l') <- typeofM c l;
+                       (TArray r') <- typeofM c r;
+                       if l' == r' then return l' else Nothing
+                     }
+typeofM c (Replicate n v) = do {
+                       TNum <- typeofM c n;
+                       v' <- typeofM c v;
+                       return $ TArray v'
+                     }
+typeofM c (First a) = do {
+                       (TArray a') <- typeofM c a;
+                       typeofM c a;
+                     }
+typeofM c (Second a) = do {
+                       (TArray a') <- typeofM c a;
+                       typeofM c a;
+                     }
+typeofM c (Last a) = do {
+                       (TArray a') <- typeofM c a;
+                       typeofM c a;
+                     }
+typeofM c (Reverse a) = do {
+                       (TArray a') <- typeofM c a;
+                       return $ TArray a';
+                     }
