@@ -1,3 +1,5 @@
+import FP
+
 -- Test utility function
 separate :: [[Char]] -> [Char]
 separate [] = []

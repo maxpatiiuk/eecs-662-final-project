@@ -1,6 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
+module FP where
 -- Imports for Monads
 
 import Control.Monad
