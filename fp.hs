@@ -10,7 +10,7 @@ import Control.Monad
 data TYPELANG = TNum
               | TBool
               | TArray TYPELANG
-              | TYPELANG :->: TYPELANG
+              | String :->: TERMLANG
               deriving (Show,Eq)
 
 data VALUELANG where
@@ -20,9 +20,9 @@ data VALUELANG where
   ArrayV :: [VALUELANG] -> VALUELANG
   deriving (Show,Eq)
 
--- T ::= num | true | false | id | T + T | T - T | T * T | T / T 
+-- T ::= num | true | false | id | T + T | T - T | T * T | T / T
 -- |  | bind id T T | if T then T else T | T && T | T || T | T <= T | isZero T
--- lambda (id:TY) in T | (T) (T) 
+-- lambda (id:TY) in T | (T) (T)
 
 data TERMLANG = Num Int
               | Plus TERMLANG TERMLANG
@@ -37,7 +37,7 @@ data TERMLANG = Num Int
               | If TERMLANG TERMLANG TERMLANG
               | Bind String TERMLANG TERMLANG
               | Id String
-              | Lambda String TYPELANG TERMLANG
+              | Lambda String TERMLANG
               | App TERMLANG TERMLANG
               | Array [TERMLANG]
               | Take TERMLANG TERMLANG
@@ -113,7 +113,7 @@ evalM e (Bind i v b) = do {
                          evalM ((i,v'):e) b
                        }
 evalM e (Id i) = lookup i e
-evalM e (Lambda i d b) = return $ ClosureV i b e
+evalM e (Lambda i b) = return $ ClosureV i b e
 evalM e (App f a) = do {
                       (ClosureV i b j) <- evalM e f;
                       v <- evalM e a;
@@ -232,14 +232,15 @@ typeofM c (Bind i v b) = do {
                            typeofM ((i,tv):c) b
                          }
 typeofM c (Id i) = lookup i c
-typeofM c (Lambda i d b) = do {
-                             r <- typeofM ((i,d):c) b;
-                             return $ d :->: r
+typeofM c (Lambda i b) = do {
+                             return $ i :->: b
                            }
 typeofM c (App f a) = do {
                         a' <- typeofM c a;
-                        d :->: r <- typeofM c f;
-                        if a'==d then return r else Nothing
+                        i :->: b <- typeofM c f;
+                        b' <- typeofM ((i,a'):c) b;
+                        --if a'==d then return r else Nothing
+                        return b'
                       }
 typeofM c (Array a) = do {
                         a' <- typeofM c $ head a;
@@ -290,3 +291,79 @@ typeofM c (Reverse a) = do {
                        (TArray a') <- typeofM c a;
                        return $ TArray a';
                      }
+
+
+
+-- Test utility function
+separate :: [[Char]] -> [Char]
+separate [] = []
+separate (x : xs) = x ++ "\n" ++ separate xs
+
+-- runTest :: (a -> b) -> [a] -> [Char]
+runTest function inputs = separate $ map (\(a, b) -> show a ++ "   ->   " ++ show b) $ zip inputs $ map function inputs
+
+inputs = [
+    Num 3,
+    Plus (Num 4) (Num 5),
+    Minus (Mult (Num 4) (Num 5)) (Num 5),
+    Div (Num 4) (Num 2),
+    Div (Num 4) (Num 0),
+    Plus (Num 4) (Num $ -5),
+    If (IsZero (Num 0)) (Num 0) (Num 1),
+    If (IsZero (Num 1)) (Num 0) (Num 1),
+    App (Lambda "a" (Num 2)) (Num 1),
+    App (Lambda "b" (Id "b")) (Num 3),
+    App (Lambda "c" (Id "c")) (If (IsZero (Num 1)) (Num 0) (Num 1)),
+    App (Lambda "dd" (If (IsZero (Num 2)) (Num 4) (Id "dd"))) (If (IsZero (Num 2)) (Num 0) (Num 1)),
+    App (Lambda " d" (If (IsZero (Num 2)) (Num 4) (Id "dd"))) (If (IsZero (Num 2)) (Num 0) (Num 1)),
+    -- Dynamic VS Static scope
+    -- bind n=1 in
+    --	bind f = (lambda x in x+n) in
+    --		bind n=2 in
+    --			(f)(1)
+    App
+      (
+        Lambda "n" (
+          App
+            (
+              Lambda "f" (
+                App
+                  (
+                    Lambda "n" (
+                      App
+                        (Id "f")
+                        (Num 1)
+                    )
+                  )
+                  (Num 2)
+              )
+            )
+            (
+              Lambda "x" (
+                Plus (Id "x") (Id "n")
+              )
+            )
+        )
+      )
+      (Num 1),
+   Bind "n" (Num 1) (
+        Bind "f" (
+          Lambda "x" (
+            Plus (Id "x") (Id "n")
+          )
+        ) (
+          Bind "n" (Num 2) (
+            App (Id "f") (Num 1)
+          )
+        )
+      )
+  ]
+
+   
+-- elabTerm doest not have tests as it is already tested as part of evalTerm
+evalM_outputs = runTest (\x -> evalM [] x) inputs
+
+-- Printing results
+main :: IO ()
+main = putStrLn $ "evalM:\n" ++ evalM_outputs
+
