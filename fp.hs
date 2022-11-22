@@ -50,6 +50,7 @@ data TERMLANG = Num Int
               | Second TERMLANG
               | Last TERMLANG
               | Reverse TERMLANG
+              | Comment String TERMLANG
                 deriving (Show,Eq)
 
 type ValueEnv = [(String, VALUELANG)]
@@ -169,6 +170,9 @@ evalM e (Reverse a) = do {
                         (ArrayV a') <- evalM e a;
                         return $ ArrayV $ reverse a';
                       }
+evalM e (Comment c b) = do {
+                          evalM e b
+                        }
 
 liftMaybe :: [Maybe a] -> Maybe [a]
 liftMaybe [] = Just []
@@ -290,6 +294,9 @@ typeofM c (Reverse a) = do {
                        (TArray a') <- typeofM c a;
                        return $ TArray a';
                      }
+typeofM c (Comment _ b) = do {
+                            typeofM c b
+                          }
 
 -- Test utility function
 separate :: [[Char]] -> [Char]
@@ -385,9 +392,8 @@ tests = [
   (Second (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (NumV 2)),
   (Second (Array [Num 1]), Nothing),
   (
-    Bind
+    Comment
       "I made this test fail intentionally, just to demo how the testing function works"
-      (Num 0)
       (Last (Array [Num 1,Num 2,Num 3,Num 4,Num 5])),
     Just (NumV 4)
   ),
