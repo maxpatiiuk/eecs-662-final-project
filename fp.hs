@@ -140,7 +140,7 @@ evalM e (Length a) = do {
 evalM e (At i a) = do {
                        (NumV i') <- evalM e i;
                        (ArrayV a') <- evalM e a;
-                       return $ a' !! i'
+                       if (length a') < i' then Nothing else return $ a' !! i' 
                      }
 evalM e (Concat l r) = do {
                          (ArrayV l') <- evalM e l;
@@ -154,12 +154,12 @@ evalM e (Replicate n v) = do {
                           }
 evalM e (First a) = do {
                       (ArrayV a') <- evalM e a;
-                      return $ a' !! 0;
+                      if (length a') < 1 then Nothing else return $ a' !! 0
                     }
 evalM e (Second a) = do {
                        (ArrayV a') <- evalM e a;
                        -- Indexing is 0 based
-                       return $ a' !! 1;
+                      if (length a') < 2 then Nothing else return $ a' !! 1
                      }
 evalM e (Last a) = do {
                      (ArrayV a') <- evalM e a;
@@ -356,10 +356,35 @@ inputs = [
             App (Id "f") (Num 1)
           )
         )
-      )
+      ),
+  Array [],
+  Length (Num 4),
+  At (Num 1) (Num 4),
+  First (Num 4),
+  Last (Num 4),
+  Second (Num 4),
+  Array [Num 1,Num 2,Num 3,Num 4,Num 5],
+  Length (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
+  At (Num 4) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
+  Concat (Array [Num 1,Num 2]) (Array [Num 3,Num 4,Num 5]),
+  Take (Num 4) (Array [Num 1,Num 2]),
+  Take (Num 4) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
+  First (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
+  First (Array []),
+  Second (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
+  Second (Array [Num 1]),
+  Last (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
+  Drop (Num 2) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
+  Reverse (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
+  Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Plus (First (Id "arr")) (Num 10)),
+  Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Plus (At (Num 4) (Id "arr")) (Last (Id "arr"))),
+  Bind "arr" (Replicate (Num 2) (Num 5)) (Length (Id "arr")),
+  Bind "arr" (Replicate (Num 2) (Num 5)) (Id "arr"),
+  Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10)),
+  Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Reverse (Id "arr"))
   ]
 
-   
+
 -- elabTerm doest not have tests as it is already tested as part of evalTerm
 evalM_outputs = runTest (\x -> evalM [] x) inputs
 
