@@ -239,7 +239,6 @@ typeofM c (App f a) = do {
                         a' <- typeofM c a;
                         i :->: b <- typeofM c f;
                         b' <- typeofM ((i,a'):c) b;
-                        --if a'==d then return r else Nothing
                         return b'
                       }
 typeofM c (Array a) = do {
@@ -292,30 +291,37 @@ typeofM c (Reverse a) = do {
                        return $ TArray a';
                      }
 
-
-
 -- Test utility function
 separate :: [[Char]] -> [Char]
 separate [] = []
 separate (x : xs) = x ++ "\n" ++ separate xs
 
--- runTest :: (a -> b) -> [a] -> [Char]
-runTest function inputs = separate $ map (\(a, b) -> show a ++ "   ->   " ++ show b) $ zip inputs $ map function inputs
+-- Run function on each input and check output agains expected output. Print results of failed runs
+runTests :: (Show a, Show b) => (a -> b) -> [(a, b)] -> [Char]
+runTests function tests = separate $ map (\((input, expectedOutput), realOutput) ->
+    let inputString = show input
+        expectedOutputString = show expectedOutput
+        realOutputString = show realOutput
+        pass = expectedOutputString == realOutputString
+        format = if pass then "[🟩PASS]" else "[🟥FAIL] Input: " ++ inputString ++ "\n\t  Expected: " ++ expectedOutputString ++ "\n\t  Received: " ++ realOutputString
+    in format
+  ) $ zip tests $ map (\(a,_) -> function a) tests
 
-inputs = [
-    Num 3,
-    Plus (Num 4) (Num 5),
-    Minus (Mult (Num 4) (Num 5)) (Num 5),
-    Div (Num 4) (Num 2),
-    Div (Num 4) (Num 0),
-    Plus (Num 4) (Num $ -5),
-    If (IsZero (Num 0)) (Num 0) (Num 1),
-    If (IsZero (Num 1)) (Num 0) (Num 1),
-    App (Lambda "a" (Num 2)) (Num 1),
-    App (Lambda "b" (Id "b")) (Num 3),
-    App (Lambda "c" (Id "c")) (If (IsZero (Num 1)) (Num 0) (Num 1)),
-    App (Lambda "dd" (If (IsZero (Num 2)) (Num 4) (Id "dd"))) (If (IsZero (Num 2)) (Num 0) (Num 1)),
-    App (Lambda " d" (If (IsZero (Num 2)) (Num 4) (Id "dd"))) (If (IsZero (Num 2)) (Num 0) (Num 1)),
+tests = [
+  (Num 3, Just (NumV 3)),
+  (Plus (Num 4) (Num 5), Just (NumV 9)),
+  (Minus (Mult (Num 4) (Num 5)) (Num 5), Just (NumV 15)),
+  (Div (Num 4) (Num 2), Just (NumV 2)),
+  (Div (Num 4) (Num 0), Nothing),
+  (Plus (Num 4) (Num (-5)), Nothing),
+  (If (IsZero (Num 0)) (Num 0) (Num 1), Just (NumV 0)),
+  (If (IsZero (Num 1)) (Num 0) (Num 1), Just (NumV 1)),
+  (App (Lambda "a" (Num 2)) (Num 1), Just (NumV 2)),
+  (App (Lambda "b" (Id "b")) (Num 3), Just (NumV 3)),
+  (App (Lambda "c" (Id "c")) (If (IsZero (Num 1)) (Num 0) (Num 1)), Just (NumV 1)),
+  (App (Lambda "dd" (If (IsZero (Num 2)) (Num 4) (Id "dd"))) (If (IsZero (Num 2)) (Num 0) (Num 1)), Just (NumV 1)),
+  (App (Lambda " d" (If (IsZero (Num 2)) (Num 4) (Id "dd"))) (If (IsZero (Num 2)) (Num 0) (Num 1)), Nothing),
+  (
     -- Dynamic VS Static scope
     -- bind n=1 in
     --	bind f = (lambda x in x+n) in
@@ -346,7 +352,10 @@ inputs = [
         )
       )
       (Num 1),
-   Bind "n" (Num 1) (
+    Just (NumV 2)
+  ),
+  (
+    Bind "n" (Num 1) (
         Bind "f" (
           Lambda "x" (
             Plus (Id "x") (Id "n")
@@ -357,38 +366,45 @@ inputs = [
           )
         )
       ),
-  Array [],
-  Length (Num 4),
-  At (Num 1) (Num 4),
-  First (Num 4),
-  Last (Num 4),
-  Second (Num 4),
-  Array [Num 1,Num 2,Num 3,Num 4,Num 5],
-  Length (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
-  At (Num 4) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
-  Concat (Array [Num 1,Num 2]) (Array [Num 3,Num 4,Num 5]),
-  Take (Num 4) (Array [Num 1,Num 2]),
-  Take (Num 4) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
-  First (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
-  First (Array []),
-  Second (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
-  Second (Array [Num 1]),
-  Last (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
-  Drop (Num 2) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
-  Reverse (Array [Num 1,Num 2,Num 3,Num 4,Num 5]),
-  Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Plus (First (Id "arr")) (Num 10)),
-  Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Plus (At (Num 4) (Id "arr")) (Last (Id "arr"))),
-  Bind "arr" (Replicate (Num 2) (Num 5)) (Length (Id "arr")),
-  Bind "arr" (Replicate (Num 2) (Num 5)) (Id "arr"),
-  Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10)),
-  Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Reverse (Id "arr"))
+      Just (NumV 2)
+  ),
+  (Array [], Just (ArrayV [])),
+  (Length (Num 4), Nothing),
+  (At (Num 1) (Num 4), Nothing),
+  (First (Num 4), Nothing),
+  (Last (Num 4), Nothing),
+  (Second (Num 4), Nothing),
+  (Array [Num 1,Num 2,Num 3,Num 4,Num 5], Just (ArrayV [NumV 1,NumV 2,NumV 3,NumV 4,NumV 5])),
+  (Length (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (NumV 5)),
+  (At (Num 4) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (NumV 5)),
+  (Concat (Array [Num 1,Num 2]) (Array [Num 3,Num 4,Num 5]), Just (ArrayV [NumV 1,NumV 2,NumV 3,NumV 4,NumV 5])),
+  (Take (Num 4) (Array [Num 1,Num 2]), Just (ArrayV [NumV 1,NumV 2])),
+  (Take (Num 4) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (ArrayV [NumV 1,NumV 2,NumV 3,NumV 4])),
+  (First (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (NumV 1)),
+  (First (Array []), Nothing),
+  (Second (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (NumV 2)),
+  (Second (Array [Num 1]), Nothing),
+  (
+    Bind
+      "I made this test fail intentionally, just to demo how the testing function works"
+      (Num 0)
+      (Last (Array [Num 1,Num 2,Num 3,Num 4,Num 5])),
+    Just (NumV 4)
+  ),
+  (Drop (Num 2) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (ArrayV [NumV 3,NumV 4,NumV 5])),
+  (Reverse (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (ArrayV [NumV 5,NumV 4,NumV 3,NumV 2,NumV 1])),
+  (Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Plus (First (Id "arr")) (Num 10)), Just (NumV 11)),
+  (Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Plus (At (Num 4) (Id "arr")) (Last (Id "arr"))), Just (NumV 10)),
+  (Bind "arr" (Replicate (Num 2) (Num 5)) (Length (Id "arr")), Just (NumV 2)),
+  (Bind "arr" (Replicate (Num 2) (Num 5)) (Id "arr"), Just (ArrayV [NumV 5,NumV 5])),
+  (Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10)), Just (NumV 15)),
+  (Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Reverse (Id "arr")), Just (ArrayV [NumV 5,NumV 4,NumV 3,NumV 2,NumV 1]))
   ]
 
-
--- elabTerm doest not have tests as it is already tested as part of evalTerm
-evalM_outputs = runTest (\x -> evalM [] x) inputs
+evalM_tests = runTests (\x -> evalM [] x) tests
 
 -- Printing results
 main :: IO ()
-main = putStrLn $ "evalM:\n" ++ evalM_outputs
+main = putStrLn $ "Test Results:\n" ++ (evalM_tests)
+
 
