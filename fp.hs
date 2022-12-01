@@ -14,7 +14,7 @@ import Control.Monad
 data TYPELANG = TNum
               | TBool
               | TArray TYPELANG
-              | TYPELANG :->: TYPELANG
+              | String :->: TERMLANG
               deriving (Show,Eq)
 
 data VALUELANG where
@@ -24,9 +24,9 @@ data VALUELANG where
   ArrayV :: [VALUELANG] -> VALUELANG
   deriving (Show,Eq)
 
--- T ::= num | true | false | id | T + T | T - T | T * T | T / T 
+-- T ::= num | true | false | id | T + T | T - T | T * T | T / T
 -- |  | bind id T T | if T then T else T | T && T | T || T | T <= T | isZero T
--- lambda (id:TY) in T | (T) (T) 
+-- lambda (id:TY) in T | (T) (T)
 
 data TERMLANG = Num Int
               | Plus TERMLANG TERMLANG
@@ -41,7 +41,7 @@ data TERMLANG = Num Int
               | If TERMLANG TERMLANG TERMLANG
               | Bind String TERMLANG TERMLANG
               | Id String
-              | Lambda String TYPELANG TERMLANG
+              | Lambda String TERMLANG
               | App TERMLANG TERMLANG
               | Array [TERMLANG]
               | Take TERMLANG TERMLANG
@@ -54,6 +54,7 @@ data TERMLANG = Num Int
               | Second TERMLANG
               | Last TERMLANG
               | Reverse TERMLANG
+              | Comment String TERMLANG
                 deriving (Show,Eq)
 
 type ValueEnv = [(String, VALUELANG)]
@@ -117,7 +118,7 @@ evalM e (Bind i v b) = do {
                          evalM ((i,v'):e) b
                        }
 evalM e (Id i) = lookup i e
-evalM e (Lambda i d b) = return $ ClosureV i b e
+evalM e (Lambda i b) = return $ ClosureV i b e
 evalM e (App f a) = do {
                       (ClosureV i b j) <- evalM e f;
                       v <- evalM e a;
@@ -144,7 +145,7 @@ evalM e (Length a) = do {
 evalM e (At i a) = do {
                        (NumV i') <- evalM e i;
                        (ArrayV a') <- evalM e a;
-                       return $ a' !! i'
+                       if (length a') < i' then Nothing else return $ a' !! i' 
                      }
 evalM e (Concat l r) = do {
                          (ArrayV l') <- evalM e l;
@@ -158,12 +159,12 @@ evalM e (Replicate n v) = do {
                           }
 evalM e (First a) = do {
                       (ArrayV a') <- evalM e a;
-                      return $ a' !! 0;
+                      if (length a') < 1 then Nothing else return $ a' !! 0
                     }
 evalM e (Second a) = do {
                        (ArrayV a') <- evalM e a;
                        -- Indexing is 0 based
-                       return $ a' !! 1;
+                      if (length a') < 2 then Nothing else return $ a' !! 1
                      }
 evalM e (Last a) = do {
                      (ArrayV a') <- evalM e a;
@@ -173,6 +174,9 @@ evalM e (Reverse a) = do {
                         (ArrayV a') <- evalM e a;
                         return $ ArrayV $ reverse a';
                       }
+evalM e (Comment c b) = do {
+                          evalM e b
+                        }
 
 liftMaybe :: [Maybe a] -> Maybe [a]
 liftMaybe [] = Just []
@@ -236,14 +240,14 @@ typeofM c (Bind i v b) = do {
                            typeofM ((i,tv):c) b
                          }
 typeofM c (Id i) = lookup i c
-typeofM c (Lambda i d b) = do {
-                             r <- typeofM ((i,d):c) b;
-                             return $ d :->: r
+typeofM c (Lambda i b) = do {
+                             return $ i :->: b
                            }
 typeofM c (App f a) = do {
                         a' <- typeofM c a;
-                        d :->: r <- typeofM c f;
-                        if a'==d then return r else Nothing
+                        i :->: b <- typeofM c f;
+                        b' <- typeofM ((i,a'):c) b;
+                        return b'
                       }
 typeofM c (Array a) = do {
                         a' <- typeofM c $ head a;
@@ -294,3 +298,123 @@ typeofM c (Reverse a) = do {
                        (TArray a') <- typeofM c a;
                        return $ TArray a';
                      }
+typeofM c (Comment _ b) = do {
+                            typeofM c b
+                          }
+
+-- Test utility function
+separate :: [[Char]] -> [Char]
+separate [] = []
+separate (x : xs) = x ++ "\n" ++ separate xs
+
+-- Run function on each input and check output agains expected output. Print results of failed runs
+runTests :: (Show a, Show b) => (a -> b) -> [(a, b)] -> [Char]
+runTests function tests = separate $ map (\((input, expectedOutput), realOutput) ->
+    let inputString = show input
+        expectedOutputString = show expectedOutput
+        realOutputString = show realOutput
+        pass = expectedOutputString == realOutputString
+        format = if pass then "[🟩PASS]" else "[🟥FAIL] Input: " ++ inputString ++ "\n\t  Expected: " ++ expectedOutputString ++ "\n\t  Received: " ++ realOutputString
+    in format
+  ) $ zip tests $ map (\(a,_) -> function a) tests
+
+tests = [
+  (Num 3, Just (NumV 3)),
+  (Plus (Num 4) (Num 5), Just (NumV 9)),
+  (Minus (Mult (Num 4) (Num 5)) (Num 5), Just (NumV 15)),
+  (Div (Num 4) (Num 2), Just (NumV 2)),
+  (Div (Num 4) (Num 0), Nothing),
+  (Plus (Num 4) (Num (-5)), Nothing),
+  (If (IsZero (Num 0)) (Num 0) (Num 1), Just (NumV 0)),
+  (If (IsZero (Num 1)) (Num 0) (Num 1), Just (NumV 1)),
+  (App (Lambda "a" (Num 2)) (Num 1), Just (NumV 2)),
+  (App (Lambda "b" (Id "b")) (Num 3), Just (NumV 3)),
+  (App (Lambda "c" (Id "c")) (If (IsZero (Num 1)) (Num 0) (Num 1)), Just (NumV 1)),
+  (App (Lambda "dd" (If (IsZero (Num 2)) (Num 4) (Id "dd"))) (If (IsZero (Num 2)) (Num 0) (Num 1)), Just (NumV 1)),
+  (App (Lambda " d" (If (IsZero (Num 2)) (Num 4) (Id "dd"))) (If (IsZero (Num 2)) (Num 0) (Num 1)), Nothing),
+  (
+    -- Dynamic VS Static scope
+    -- bind n=1 in
+    --	bind f = (lambda x in x+n) in
+    --		bind n=2 in
+    --			(f)(1)
+    App
+      (
+        Lambda "n" (
+          App
+            (
+              Lambda "f" (
+                App
+                  (
+                    Lambda "n" (
+                      App
+                        (Id "f")
+                        (Num 1)
+                    )
+                  )
+                  (Num 2)
+              )
+            )
+            (
+              Lambda "x" (
+                Plus (Id "x") (Id "n")
+              )
+            )
+        )
+      )
+      (Num 1),
+    Just (NumV 2)
+  ),
+  (
+    Bind "n" (Num 1) (
+        Bind "f" (
+          Lambda "x" (
+            Plus (Id "x") (Id "n")
+          )
+        ) (
+          Bind "n" (Num 2) (
+            App (Id "f") (Num 1)
+          )
+        )
+      ),
+      Just (NumV 2)
+  ),
+  (Array [], Just (ArrayV [])),
+  (Length (Num 4), Nothing),
+  (At (Num 1) (Num 4), Nothing),
+  (First (Num 4), Nothing),
+  (Last (Num 4), Nothing),
+  (Second (Num 4), Nothing),
+  (Array [Num 1,Num 2,Num 3,Num 4,Num 5], Just (ArrayV [NumV 1,NumV 2,NumV 3,NumV 4,NumV 5])),
+  (Length (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (NumV 5)),
+  (At (Num 4) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (NumV 5)),
+  (Concat (Array [Num 1,Num 2]) (Array [Num 3,Num 4,Num 5]), Just (ArrayV [NumV 1,NumV 2,NumV 3,NumV 4,NumV 5])),
+  (Take (Num 4) (Array [Num 1,Num 2]), Just (ArrayV [NumV 1,NumV 2])),
+  (Take (Num 4) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (ArrayV [NumV 1,NumV 2,NumV 3,NumV 4])),
+  (First (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (NumV 1)),
+  (First (Array []), Nothing),
+  (Second (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (NumV 2)),
+  (Second (Array [Num 1]), Nothing),
+  (
+    Comment
+      "I made this test fail intentionally, just to demo how the testing function works"
+      (Last (Array [Num 1,Num 2,Num 3,Num 4,Num 5])),
+    Just (NumV 4)
+  ),
+  (Drop (Num 2) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (ArrayV [NumV 3,NumV 4,NumV 5])),
+  (Reverse (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (ArrayV [NumV 5,NumV 4,NumV 3,NumV 2,NumV 1])),
+  (Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Plus (First (Id "arr")) (Num 10)), Just (NumV 11)),
+  (Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Plus (At (Num 4) (Id "arr")) (Last (Id "arr"))), Just (NumV 10)),
+  (Bind "arr" (Replicate (Num 2) (Num 5)) (Length (Id "arr")), Just (NumV 2)),
+  (Bind "arr" (Replicate (Num 2) (Num 5)) (Id "arr"), Just (ArrayV [NumV 5,NumV 5])),
+  (Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10)), Just (NumV 15)),
+  (Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Reverse (Id "arr")), Just (ArrayV [NumV 5,NumV 4,NumV 3,NumV 2,NumV 1]))
+  ]
+
+evalM_tests = runTests (\x -> evalM [] x) tests
+
+-- Printing results
+main :: IO ()
+main = putStrLn $ "Test Results:\n" ++ (evalM_tests)
+
+
