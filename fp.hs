@@ -61,7 +61,6 @@ data TERMLANG = Num Int
 type ValueEnv = [(String, VALUELANG)]
 type Cont = [(String,TYPELANG)]
 
-
 subst :: String -> TERMLANG -> TERMLANG -> TERMLANG
 subst _ _ (Num x) = (Num x)
 subst i v (Plus l r) = (Plus (subst i v l) (subst i v r))
@@ -76,7 +75,7 @@ subst i v (IsZero x) = (IsZero (subst i v x))
 subst i v (If c t f) = (If (subst i v c) (subst i v t) (subst i v f))
 subst i v (Bind i' v' b') = if i == i' then (Bind i' (subst i v v') b') else (Bind i' (subst i v v') (subst i v b'))
 subst i v (Id i') = if i==i' then v else (Id i')
-subst i v (Lambda i' b) = Lambda i (subst i' v b)
+subst i v (Lambda i' b) = Lambda i' (subst i' v b)
 subst i v (App f a) = App (subst i v f) (subst i v a)
 subst i v (Fix f) = Fix (subst i v f)
 subst i v (Array a) = Array (map (\x -> (subst i v x)) a)
@@ -91,7 +90,6 @@ subst i v (Second a) = Second (subst i v a)
 subst i v (Last a) = Last (subst i v a)
 subst i v (Reverse a) = Reverse (subst i v a)
 subst i v (Comment c b) = Comment c (subst i v b)
-
 
 evalM :: ValueEnv -> TERMLANG -> Maybe VALUELANG
 evalM e (Num x) = if x<0 then Nothing else Just (NumV x)
