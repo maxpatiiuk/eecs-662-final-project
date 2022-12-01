@@ -43,6 +43,7 @@ data TERMLANG = Num Int
               | Id String
               | Lambda String TERMLANG
               | App TERMLANG TERMLANG
+              | Fix TERMLANG
               | Array [TERMLANG]
               | Take TERMLANG TERMLANG
               | Drop TERMLANG TERMLANG
@@ -59,6 +60,23 @@ data TERMLANG = Num Int
 
 type ValueEnv = [(String, VALUELANG)]
 type Cont = [(String,TYPELANG)]
+
+
+subst :: String -> TERMLANG -> TERMLANG -> TERMLANG
+subst _ _ (Num x) = (Num x)  -- if scope is just a Num then no effect
+-- for all binary operations, need to try substituing args
+subst i v (Plus l r) = (Plus (subst i v l) (subst i v r))
+subst i v (Minus l r) = (Minus (subst i v l) (subst i v r))
+subst i v (Mult l r) = (Mult (subst i v l) (subst i v r))
+subst i v (Div l r) = (Div (subst i v l) (subst i v r))
+subst _ _ (Boolean x) = (Boolean x)  -- if scope is just a Boolean then no effect
+subst i v (And l r) = (And (subst i v l) (subst i v r))
+subst i v (Or l r) = (Or (subst i v l) (subst i v r))
+subst i v (Leq l r) = (Leq (subst i v l) (subst i v r))
+subst i v (IsZero x) = (IsZero (subst i v x))
+subst i v (If c t f) = (If (subst i v c) (subst i v t) (subst i v f))
+subst i v (Bind i' v' b') = if i == i' then (Bind i' (subst i v v') b') else (Bind i' (subst i v v') (subst i v b'))
+subst i v (Id i') = if i==i' then v else (Id i')
 
 
 evalM :: ValueEnv -> TERMLANG -> Maybe VALUELANG
@@ -177,6 +195,11 @@ evalM e (Reverse a) = do {
 evalM e (Comment c b) = do {
                           evalM e b
                         }
+
+evalM e (Fix f) = do {
+                  (ClosureV i b e') <- evalM e f;
+                  evalM e' (subst i (Fix (Lambda i b)) b)
+                  }
 
 liftMaybe :: [Maybe a] -> Maybe [a]
 liftMaybe [] = Just []
@@ -301,6 +324,11 @@ typeofM c (Reverse a) = do {
 typeofM c (Comment _ b) = do {
                             typeofM c b
                           }
+
+typeofM c (Fix t) = do {
+              (d :->: r) <- typeofM c t;
+              typeofM c r
+            }
 
 -- Test utility function
 separate :: [[Char]] -> [Char]
