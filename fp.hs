@@ -1,10 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
--- Declaring module
-
-module FP where
-
 -- Imports for Monads
 
 import Control.Monad
