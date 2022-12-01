@@ -450,11 +450,11 @@ tests = [
   (Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10)), Just (NumV 15)),
   (Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Reverse (Id "arr")), Just (ArrayV [NumV 5,NumV 4,NumV 3,NumV 2,NumV 1])),
 
-  -- (lambda x in if x=0 then 1 else x*(g)(x-1))) in ((fix)(factorial))(3)
+  -- bind factorial = (lambda g in (lambda x in if x=0 then 1 else x*(g)(x-1))) in ((fix)(factorial))(3)
   (Bind "factorial" (Lambda "g" ((Lambda "x" (If (IsZero (Id "x")) (Num 1) (Mult (Id "x") (App (Id "g") (Minus (Id "x") (Num 1)))))))) (App (Fix (Id "factorial")) (Num 3)), Just (NumV 6)),
 
   -- bind factorial = (lambda g in (lambda x in if x=0 then 1 else x*(g)(x-1))) in bind fact = (fix)(factorial) in (fact)(3)
-  (Bind "factorial" (Lambda "g" ((Lambda "x" (If (IsZero (Id "x")) (Num 1) (Mult (Id "x") (App (Id "g") (Minus (Id "x") (Num 1)))))))) (Bind "fact" ((Fix)(Id "factorial")) (App (Id "fact") (Num 3))), Just (NumV 6))
+  (Bind "factorial" (Lambda "g" ((Lambda "x" (If (IsZero (Id "x")) (Num 1) (Mult (Id "x") (App (Id "g") (Minus (Id "x") (Num 1)))))))) (Bind "fact" (Fix (Id "factorial")) (App (Id "fact") (Num 3))), Just (NumV 6))
   ]
 
 evalM_tests = runTests (\x -> evalM [] x) tests
