@@ -69,9 +69,9 @@ subst i v (Or l r) = (Or (subst i v l) (subst i v r))
 subst i v (Leq l r) = (Leq (subst i v l) (subst i v r))
 subst i v (IsZero x) = (IsZero (subst i v x))
 subst i v (If c t f) = (If (subst i v c) (subst i v t) (subst i v f))
-subst i v (Bind i' v' b') = if i == i' then (Bind i' (subst i v v') b') else (Bind i' (subst i v v') (subst i v b'))
-subst i v (Id i') = if i==i' then v else (Id i')
-subst i v (Lambda i' b) = Lambda i' (subst i' v b)
+subst i v (Bind i' v' b') = Bind i' (subst i v v') (if i == i' then b' else (subst i v b'))
+subst i v (Id i') = if i == i' then v else (Id i')
+subst i v (Lambda i' b) = Lambda i' (if i == i' then b else (subst i v b))
 subst i v (App f a) = App (subst i v f) (subst i v a)
 subst i v (Fix f) = Fix (subst i v f)
 subst i v (Array a) = Array (map (\x -> (subst i v x)) a)
@@ -146,9 +146,9 @@ evalM e (Bind i v b) = do {
 evalM e (Id i) = lookup i e
 evalM e (Lambda i b) = return $ ClosureV i b e
 evalM e (App f a) = do {
-                      (ClosureV i b j) <- evalM e f;
+                      (ClosureV i b e') <- evalM e f;
                       v <- evalM e a;
-                      evalM ((i,v):j) b
+                      evalM ((i,v):e') b
                     }
 evalM e (Fix f) = do {
                     (ClosureV i b e') <- evalM e f;
@@ -204,9 +204,7 @@ evalM e (Reverse a) = do {
                         (ArrayV a') <- evalM e a;
                         return $ ArrayV $ reverse a';
                       }
-evalM e (Comment c b) = do {
-                          evalM e b
-                        }
+evalM e (Comment c b) = evalM e b
 
 liftMaybe :: [Maybe a] -> Maybe [a]
 liftMaybe [] = Just []
@@ -270,18 +268,15 @@ typeofM c (Bind i v b) = do {
                            typeofM ((i,tv):c) b
                          }
 typeofM c (Id i) = lookup i c
-typeofM c (Lambda i b) = do {
-                             return $ i :->: b
-                           }
+typeofM c (Lambda i b) = Just $ i :->: b
 typeofM c (App f a) = do {
                         a' <- typeofM c a;
                         i :->: b <- typeofM c f;
-                        b' <- typeofM ((i,a'):c) b;
-                        return b'
+                        typeofM ((i,a'):c) b
                       }
 typeofM c (Fix t) = do {
-                      (d :->: r) <- typeofM c t;
-                      typeofM c r
+                      i :->: b <- typeofM c t;
+                      typeofM c (subst i (Fix (Lambda i b)) b)
                     }
 typeofM c (Array a) = do {
                         a' <- if length a == 0 then Nothing else typeofM c $ head a;
@@ -332,9 +327,7 @@ typeofM c (Reverse a) = do {
                        (TArray a') <- typeofM c a;
                        return $ TArray a';
                      }
-typeofM c (Comment _ b) = do {
-                            typeofM c b
-                          }
+typeofM c (Comment _ b) = typeofM c b
 
 interpTypeEval :: TERMLANG -> Maybe VALUELANG
 interpTypeEval e = if typeofM [] e == Nothing then Nothing else evalM [] e
@@ -448,7 +441,9 @@ tests = [
   (Bind "arr" (Replicate (Num 2) (Num 5)) (Id "arr"), Just (ArrayV [NumV 5,NumV 5])),
   (Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10)), Just (NumV 15)),
   (Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Reverse (Id "arr")), Just (ArrayV [NumV 5,NumV 4,NumV 3,NumV 2,NumV 1])),
-
+  (App (Fix (Lambda "g" (Lambda "x" (Num 6)))) (Num 3), Just (NumV 6)),
+  (Fix (Lambda "g" (Lambda "x" (Id "g"))), Just (ClosureV "x" (Fix (Lambda "g" (Lambda "x" (Id "g")))) [])),
+  (App (Fix (Lambda "g" (Lambda "x" (Id "g")))) (Num 3), Just (ClosureV "x" (Fix (Lambda "g" (Lambda "x" (Id "g")))) [("x",NumV 3)])),
   -- bind factorial = (lambda g in (lambda x in if x=0 then 1 else x*(g)(x-1))) in ((fix)(factorial))(3)
   (Bind "factorial" (Lambda "g" ((Lambda "x" (If (IsZero (Id "x")) (Num 1) (Mult (Id "x") (App (Id "g") (Minus (Id "x") (Num 1)))))))) (App (Fix (Id "factorial")) (Num 3)), Just (NumV 6)),
 
@@ -458,8 +453,35 @@ tests = [
 
 evalM_tests = runTests interpTypeEval tests
 
+subst_tests = runTests (\(i, v, x) -> subst i v x) [
+  (
+    (
+      "g",
+      Fix (Lambda "g" (Lambda "x" (Id "g"))),
+      Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10))
+    ),
+    Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10))
+  ),
+  (
+    (
+      "g",
+      Fix (Lambda "g" (Lambda "x" (Id "g"))),
+      Id "g"
+    ),
+    Fix (Lambda "g" (Lambda "x" (Id "g")))
+  ),
+  (
+    (
+      "g",
+      Fix (Lambda "g" (Lambda "x" (Id "g"))),
+      Lambda "x" (Id "g")
+    ),
+    Lambda "x" (Fix (Lambda "g" (Lambda "x" (Id "g"))))
+  )
+  ]
+
+
 -- Printing results
 main :: IO ()
-main = putStrLn $ "Test Results:\n" ++ (evalM_tests)
-
+main = putStrLn $ "Interp Test Results:\n" ++ evalM_tests ++ "\n\nSubst Test Results:\n" ++ subst_tests
 
