@@ -284,7 +284,7 @@ typeofM c (Fix t) = do {
                       typeofM c r
                     }
 typeofM c (Array a) = do {
-                        a' <- typeofM c $ head a;
+                        a' <- if length a == 0 then Nothing else typeofM c $ head a;
                         return $ TArray a'
                       }
 typeofM c (Take n a) = do {
@@ -298,7 +298,7 @@ typeofM c (Drop n a) = do {
                          return $ TArray a'
                        }
 typeofM c (Length a) = do {
-                         TNum <- typeofM c a;
+                         (TArray a') <- typeofM c a;
                          return TNum
                        }
 typeofM c (At i a) = do {
@@ -318,15 +318,15 @@ typeofM c (Replicate n v) = do {
                      }
 typeofM c (First a) = do {
                        (TArray a') <- typeofM c a;
-                       typeofM c a;
+                       return a';
                      }
 typeofM c (Second a) = do {
                        (TArray a') <- typeofM c a;
-                       typeofM c a;
+                       return a';
                      }
 typeofM c (Last a) = do {
                        (TArray a') <- typeofM c a;
-                       typeofM c a;
+                       return a';
                      }
 typeofM c (Reverse a) = do {
                        (TArray a') <- typeofM c a;
@@ -335,6 +335,9 @@ typeofM c (Reverse a) = do {
 typeofM c (Comment _ b) = do {
                             typeofM c b
                           }
+
+interpTypeEval :: TERMLANG -> Maybe VALUELANG
+interpTypeEval e = if typeofM [] e == Nothing then Nothing else evalM [] e
 
 -- Test utility function
 separate :: [[Char]] -> [Char]
@@ -413,7 +416,9 @@ tests = [
       ),
       Just (NumV 2)
   ),
-  (Array [], Just (ArrayV [])),
+  -- Empty array is not supported when type checking is enabled as we can't infer it's type
+  (Array [], Nothing),
+  (Array [Num 4], Just (ArrayV [NumV 4])),
   (Length (Num 4), Nothing),
   (At (Num 1) (Num 4), Nothing),
   (First (Num 4), Nothing),
@@ -433,7 +438,7 @@ tests = [
     Comment
       "I made this test fail intentionally, just to demo how the testing function works"
       (Last (Array [Num 1,Num 2,Num 3,Num 4,Num 5])),
-    Just (NumV 4)
+    Just (NumV 3)
   ),
   (Drop (Num 2) (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (ArrayV [NumV 3,NumV 4,NumV 5])),
   (Reverse (Array [Num 1,Num 2,Num 3,Num 4,Num 5]), Just (ArrayV [NumV 5,NumV 4,NumV 3,NumV 2,NumV 1])),
@@ -451,7 +456,7 @@ tests = [
   (Bind "factorial" (Lambda "g" ((Lambda "x" (If (IsZero (Id "x")) (Num 1) (Mult (Id "x") (App (Id "g") (Minus (Id "x") (Num 1)))))))) (Bind "fact" (Fix (Id "factorial")) (App (Id "fact") (Num 3))), Just (NumV 6))
   ]
 
-evalM_tests = runTests (\x -> evalM [] x) tests
+evalM_tests = runTests interpTypeEval tests
 
 -- Printing results
 main :: IO ()
