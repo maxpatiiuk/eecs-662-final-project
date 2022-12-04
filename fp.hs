@@ -87,7 +87,7 @@ subst i v (Reverse a) = Reverse (subst i v a)
 subst i v (Comment c b) = Comment c (subst i v b)
 
 evalM :: ValueEnv -> TERMLANG -> Maybe VALUELANG
-evalM e (Num x) = if x<0 then Nothing else Just (NumV x)
+evalM _ (Num x) = if x<0 then Nothing else Just (NumV x)
 evalM e (Plus l r) = do {
                        (NumV l') <- evalM e l;
                        (NumV r') <- evalM e r;
@@ -112,7 +112,7 @@ evalM e (Div l r) = do {
                       then Nothing
                       else return $ NumV $ l' `div` r'
                     }
-evalM e (Boolean b) = Just (BooleanV b)
+evalM _ (Boolean b) = Just (BooleanV b)
 evalM e (And l r) = do {
                       (BooleanV l') <- evalM e l;
                       (BooleanV r') <- evalM e r;
@@ -154,7 +154,7 @@ evalM e (Fix f) = do {
                     evalM e' (subst i (Fix (Lambda i b)) b)
                   }
 evalM e (Array a) = do {
-                      a' <- liftMaybe $ map (\a -> evalM e a) a;
+                      a' <- liftMaybe $ map (\i -> evalM e i) a;
                       return $ ArrayV a'
                     }
 evalM e (Take n a) = do {
@@ -203,7 +203,7 @@ evalM e (Reverse a) = do {
                         (ArrayV a') <- evalM e a;
                         return $ ArrayV $ reverse a';
                       }
-evalM e (Comment c b) = evalM e b
+evalM e (Comment _ b) = evalM e b
 
 liftMaybe :: [Maybe a] -> Maybe [a]
 liftMaybe [] = Just []
@@ -215,8 +215,8 @@ liftMaybe (i:a) = do {
 
 
 typeofM :: Cont -> TERMLANG -> Maybe TYPELANG
-typeofM c (Num x) = if x>= 0 then return TNum else Nothing
-typeofM c (Boolean b) = return TBool
+typeofM _ (Num x) = if x>= 0 then return TNum else Nothing
+typeofM _ (Boolean _) = return TBool
 typeofM c (Plus l r) = do {
                          TNum <- typeofM c l;
                          TNum <- typeofM c r;
@@ -267,7 +267,7 @@ typeofM c (Bind i v b) = do {
                            typeofM ((i,tv):c) b
                          }
 typeofM c (Id i) = lookup i c
-typeofM c (Lambda i b) = Just $ i :->: b
+typeofM _ (Lambda i b) = Just $ i :->: b
 typeofM c (App f a) = do {
                         a' <- typeofM c a;
                         i :->: b <- typeofM c f;
@@ -292,7 +292,7 @@ typeofM c (Drop n a) = do {
                          return $ TArray a'
                        }
 typeofM c (Length a) = do {
-                         (TArray a') <- typeofM c a;
+                         (TArray _) <- typeofM c a;
                          return TNum
                        }
 typeofM c (At i a) = do {
@@ -348,7 +348,8 @@ runTests function tests = separate $ map (\((input, expectedOutput), realOutput)
     in format
   ) $ zip tests $ map (\(a,_) -> function a) tests
 
-tests = [
+theories:: [(TERMLANG, Maybe VALUELANG)]
+theories = [
   (Num 3, Just (NumV 3)),
   (Plus (Num 4) (Num 5), Just (NumV 9)),
   (Minus (Mult (Num 4) (Num 5)) (Num 5), Just (NumV 15)),
@@ -665,8 +666,10 @@ tests = [
   )
   ]
 
-evalM_tests = runTests interpTypeEval tests
+evalM_tests:: [Char]
+evalM_tests = runTests interpTypeEval theories
 
+subst_tests:: [Char]
 subst_tests = runTests (\(i, v, x) -> subst i v x) [
   (
     (
