@@ -1,9 +1,8 @@
 {-# LANGUAGE GADTs #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
+{-# OPTIONS -Wall #-}
 
 -- Imports for Monads
-
-import Control.Monad
 
 -- TY ::= Num | Boolean | TY -> TY
 
@@ -58,17 +57,17 @@ type ValueEnv = [(String, VALUELANG)]
 type Cont = [(String,TYPELANG)]
 
 subst :: String -> TERMLANG -> TERMLANG -> TERMLANG
-subst _ _ (Num x) = (Num x)
-subst i v (Plus l r) = (Plus (subst i v l) (subst i v r))
-subst i v (Minus l r) = (Minus (subst i v l) (subst i v r))
-subst i v (Mult l r) = (Mult (subst i v l) (subst i v r))
-subst i v (Div l r) = (Div (subst i v l) (subst i v r))
-subst _ _ (Boolean x) = (Boolean x)
-subst i v (And l r) = (And (subst i v l) (subst i v r))
-subst i v (Or l r) = (Or (subst i v l) (subst i v r))
-subst i v (Leq l r) = (Leq (subst i v l) (subst i v r))
-subst i v (IsZero x) = (IsZero (subst i v x))
-subst i v (If c t f) = (If (subst i v c) (subst i v t) (subst i v f))
+subst _ _ (Num x) = Num x
+subst i v (Plus l r) = Plus (subst i v l) (subst i v r)
+subst i v (Minus l r) = Minus (subst i v l) (subst i v r)
+subst i v (Mult l r) = Mult (subst i v l) (subst i v r)
+subst i v (Div l r) = Div (subst i v l) (subst i v r)
+subst _ _ (Boolean x) = Boolean x
+subst i v (And l r) = And (subst i v l) (subst i v r)
+subst i v (Or l r) = Or (subst i v l) (subst i v r)
+subst i v (Leq l r) = Leq (subst i v l) (subst i v r)
+subst i v (IsZero x) = IsZero (subst i v x)
+subst i v (If c t f) = If (subst i v c) (subst i v t) (subst i v f)
 subst i v (Bind i' v' b') = Bind i' (subst i v v') (if i == i' then b' else (subst i v b'))
 subst i v (Id i') = if i == i' then v else (Id i')
 subst i v (Lambda i' b) = Lambda i' (if i == i' then b else (subst i v b))
@@ -175,7 +174,7 @@ evalM e (Length a) = do {
 evalM e (At i a) = do {
                        (NumV i') <- evalM e i;
                        (ArrayV a') <- evalM e a;
-                       if (length a') < i' then Nothing else return $ a' !! i' 
+                       if (length a') < i' then Nothing else return $ a' !! i'
                      }
 evalM e (Concat l r) = do {
                          (ArrayV l') <- evalM e l;
@@ -194,7 +193,7 @@ evalM e (First a) = do {
 evalM e (Second a) = do {
                        (ArrayV a') <- evalM e a;
                        -- Indexing is 0 based
-                      if (length a') < 2 then Nothing else return $ a' !! 1
+                       if (length a') < 2 then Nothing else return $ a' !! 1
                      }
 evalM e (Last a) = do {
                      (ArrayV a') <- evalM e a;
@@ -274,8 +273,8 @@ typeofM c (App f a) = do {
                         i :->: b <- typeofM c f;
                         typeofM ((i,a'):c) b
                       }
-typeofM c (Fix t) = do {
-                      i :->: b <- typeofM c t;
+typeofM c (Fix f) = do {
+                      i :->: b <- typeofM c f;
                       typeofM c (subst i (Fix (Lambda i b)) b)
                     }
 typeofM c (Array a) = do {
@@ -331,6 +330,7 @@ typeofM c (Comment _ b) = typeofM c b
 
 interpTypeEval :: TERMLANG -> Maybe VALUELANG
 interpTypeEval e = if typeofM [] e == Nothing then Nothing else evalM [] e
+
 
 -- Test utility function
 separate :: [[Char]] -> [Char]
@@ -453,6 +453,163 @@ tests = [
     App (Fix (Lambda "g" (Lambda "x" (Id "g")))) (Num 3),
     Just (ClosureV "x" (Fix (Lambda "g" (Lambda "x" (Id "g")))) [("x",NumV 3)])
   ),
+  (
+    App (Fix (Lambda "g" (Lambda "x" (Id "x")))) (Num 42),
+    Just (NumV 42)
+  ),
+  (
+    App
+      (Fix
+        (Lambda "g"
+          (Lambda "x"
+            (If (IsZero (Id "x"))
+              (Id "g")
+              (Id "g")
+            )
+          )
+        )
+      )
+      (Num 3),
+    Just (
+      ClosureV "x"
+        (If (IsZero (Id "x"))
+          (Fix (Lambda "g" (Lambda "x" (If (IsZero (Id "x")) (Id "g") (Id "g")))))
+          (Fix (Lambda "g" (Lambda "x" (If (IsZero (Id "x")) (Id "g") (Id "g")))))
+        )
+        [("x",NumV 3)]
+    )
+  ),
+  (
+    App
+      (Fix
+        (Lambda "g"
+          (Lambda "x"
+            (If (IsZero (Id "x"))
+              (Num 2)
+              (Num 0)
+            )
+          )
+        )
+      )
+      (Num 0),
+    Just (NumV 2)
+  ),
+  (
+    Fix
+      (Lambda "g"
+        (Lambda "x"
+          (If (IsZero (Id "x"))
+            (Num 0)
+            (App (Id "g") (Num 0))
+          )
+        )
+      ),
+    Just (
+      ClosureV "x"
+        (If (IsZero (Id "x"))
+          (Num 0)
+          (App
+            (Fix
+              (Lambda "g"
+                (Lambda "x"
+                  (If (IsZero (Id "x"))
+                    (Num 0)
+                    (App (Id "g") (Num 0))
+                  )
+                )
+              )
+            )
+            (Num 0)
+          )
+        )
+      []
+    )
+  ),
+  (
+    App
+      (Fix
+        (Lambda "g"
+          (Lambda "x"
+            (If (IsZero (Id "x"))
+              (Num 0)
+              (App (Id "g") (Num 0))
+            )
+          )
+        )
+      )
+      (Num 0),
+    Just (NumV 0)
+  ),
+  (
+    Fix (
+      Lambda "g" (
+        (
+          Lambda "x" (
+            If (IsZero (Id "x"))
+              (Num 1)
+              (
+                Mult
+                (Id "x")
+                (
+                  App
+                    (Id "g")
+                    (Minus (Id "x") (Num 1))
+                )
+              )
+          )
+        )
+      )
+    ),
+    Just (
+      ClosureV "x" (
+        If (IsZero (Id "x"))
+          (Num 1)
+          (
+            Mult
+              (Id "x")
+              (App
+                (Fix
+                  (Lambda "g"
+                    (Lambda "x"
+                      (If (IsZero (Id "x"))
+                        (Num 1)
+                        (Mult
+                          (Id "x")
+                          (App (Id "g") (Minus (Id "x") (Num 1)))
+                        )
+                      )
+                    )
+                  )
+                )
+                (Minus (Id "x") (Num 1))
+              )
+          )
+        )
+        []
+    )
+  ),
+  (
+    Bind "factorial" (
+      Lambda "g" (
+        (
+          Lambda "x" (
+            If (IsZero (Id "x"))
+              (Num 1)
+              (
+                App
+                  (Id "g")
+                  (Num 0)
+              )
+          )
+        )
+      )
+    ) (
+      App
+        (Fix (Id "factorial"))
+        (Num 3)
+    ),
+    Just (NumV 6)
+  ),
   -- bind factorial = (lambda g in (lambda x in if x=0 then 1 else x*(g)(x-1))) in ((fix)(factorial))(3)
   (
     Bind "factorial" (
@@ -534,6 +691,41 @@ subst_tests = runTests (\(i, v, x) -> subst i v x) [
       Lambda "x" (Id "g")
     ),
     Lambda "x" (Fix (Lambda "g" (Lambda "x" (Id "g"))))
+  ),
+  (
+    (
+      "g",
+      Fix
+        (Lambda "g"
+          (Lambda "x"
+            (If (IsZero (Id "x"))
+              (Num 0)
+              (App (Id "g") (Num 1))
+            )
+          )
+        ),
+      Lambda "x"
+        (If (IsZero (Id "x"))
+          (Num 0)
+          (App (Id "g") (Num 1))
+        )
+    ),
+    Lambda "x"
+      (If (IsZero (Id "x"))
+        (Num 0)
+        (App
+          (Fix
+            (Lambda "g"
+              (Lambda "x"
+                (If (IsZero (Id "x"))
+                  (Num 0)
+                  (App (Id "g") (Num 1)))
+              )
+            )
+          )
+          (Num 1)
+        )
+      )
   )
   ]
 
