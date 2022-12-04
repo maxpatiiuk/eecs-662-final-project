@@ -344,7 +344,7 @@ runTests function tests = separate $ map (\((input, expectedOutput), realOutput)
         expectedOutputString = show expectedOutput
         realOutputString = show realOutput
         pass = expectedOutputString == realOutputString
-        format = if pass then "[🟩PASS]" else "[🟥FAIL] Input: " ++ inputString ++ "\n\t  Expected: " ++ expectedOutputString ++ "\n\t  Received: " ++ realOutputString
+        format = (if pass then "[🟩PASS] " else "[🟥FAIL] Input: ") ++ inputString ++ "\n\t  Expected: " ++ expectedOutputString ++ "\n\t  Received: " ++ realOutputString
     in format
   ) $ zip tests $ map (\(a,_) -> function a) tests
 
@@ -484,4 +484,5 @@ subst_tests = runTests (\(i, v, x) -> subst i v x) [
 -- Printing results
 main :: IO ()
 main = putStrLn $ "Interp Test Results:\n" ++ evalM_tests ++ "\n\nSubst Test Results:\n" ++ subst_tests
+
 
