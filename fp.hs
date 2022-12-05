@@ -9,8 +9,10 @@
 data TYPELANG = TNum
               | TBool
               | TArray TYPELANG
-              | String :->: TERMLANG
+              | TLambda String TERMLANG NULLABLE NULLABLE
               deriving (Show,Eq)
+
+data NULLABLE = Type TYPELANG | NotProvided | NotFound deriving (Show,Eq)
 
 data VALUELANG where
   NumV :: Int -> VALUELANG
@@ -37,8 +39,9 @@ data TERMLANG = Num Int
               | Bind String TERMLANG TERMLANG
               | Id String
               | Lambda String TERMLANG
+              | TypedLambda String TERMLANG TYPELANG TYPELANG  -- Can explicitly provide the domain and range type
               | App TERMLANG TERMLANG
-              | Fix TERMLANG
+              | Fix TERMLANG TYPELANG TYPELANG
               | Array [TERMLANG]
               | Take TERMLANG TERMLANG
               | Drop TERMLANG TERMLANG
@@ -55,6 +58,11 @@ data TERMLANG = Num Int
 
 type ValueEnv = [(String, VALUELANG)]
 type Cont = [(String,TYPELANG)]
+-- Used for type-checking of recursive functions
+-- Key is the stringified representation of the function
+-- Value is the declared return type of the function
+-- If return type was not specified,
+type Recursion = [([Char],NULLABLE)]
 
 subst :: String -> TERMLANG -> TERMLANG -> TERMLANG
 subst _ _ (Num x) = Num x
@@ -71,8 +79,9 @@ subst i v (If c t f) = If (subst i v c) (subst i v t) (subst i v f)
 subst i v (Bind i' v' b') = Bind i' (subst i v v') (if i == i' then b' else (subst i v b'))
 subst i v (Id i') = if i == i' then v else (Id i')
 subst i v (Lambda i' b) = Lambda i' (if i == i' then b else (subst i v b))
+subst i v (TypedLambda i' b _ _) = Lambda i' (if i == i' then b else (subst i v b))
 subst i v (App f a) = App (subst i v f) (subst i v a)
-subst i v (Fix f) = Fix (subst i v f)
+subst i v (Fix f d r) = Fix (subst i v f) d r
 subst i v (Array a) = Array (map (\x -> (subst i v x)) a)
 subst i v (Take n a) = Take (subst i v n) (subst i v a)
 subst i v (Drop n a) = Drop (subst i v n) (subst i v a)
@@ -96,7 +105,7 @@ evalM e (Plus l r) = do {
 evalM e (Minus l r) = do {
                         (NumV l') <- evalM e l;
                         (NumV r') <- evalM e r;
-                        if (l'-r') < 0
+                        if   (l'-r') < 0
                         then Nothing
                         else return $ NumV $ l'-r'
                       }
@@ -108,7 +117,7 @@ evalM e (Mult l r) = do {
 evalM e (Div l r) = do {
                       (NumV l') <- evalM e l;
                       (NumV r') <- evalM e r;
-                      if r' == 0
+                      if   r' == 0
                       then Nothing
                       else return $ NumV $ l' `div` r'
                     }
@@ -142,14 +151,15 @@ evalM e (Bind i v b) = do {
                        }
 evalM e (Id i) = lookup i e
 evalM e (Lambda i b) = return $ ClosureV i b e
+evalM e (TypedLambda i b _ _) = return $ ClosureV i b e
 evalM e (App f a) = do {
                       (ClosureV i b e') <- evalM e f;
                       v <- evalM e a;
                       evalM ((i,v):e') b
                     }
-evalM e (Fix f) = do {
+evalM e (Fix f d r) = do {
                     (ClosureV i b e') <- evalM e f;
-                    evalM e' (subst i (Fix (Lambda i b)) b)
+                    evalM e' (subst i (Fix (Lambda i b) d r) b)
                   }
 evalM e (Array a) = do {
                       a' <- liftMaybe $ map (\i -> evalM e i) a;
@@ -212,7 +222,7 @@ liftMaybe (i:a) = do {
                   }
 
 
-typeofM :: Cont -> TERMLANG -> Maybe TYPELANG
+typeofM :: (Cont, Recursion) -> TERMLANG -> Maybe TYPELANG
 typeofM _ (Num x) = if x>= 0 then return TNum else Nothing
 typeofM _ (Boolean _) = return TBool
 typeofM c (Plus l r) = do {
@@ -260,21 +270,38 @@ typeofM c (If c' t e) = do {
                           e' <- typeofM c e;
                           if t' == e' then return t' else Nothing
                         }
-typeofM c (Bind i v b) = do {
-                           tv <- typeofM c v;
-                           typeofM ((i,tv):c) b
-                         }
-typeofM c (Id i) = lookup i c
-typeofM _ (Lambda i b) = Just $ i :->: b
-typeofM c (App f a) = do {
-                        a' <- typeofM c a;
-                        i :->: b <- typeofM c f;
-                        typeofM ((i,a'):c) b
-                      }
-typeofM c (Fix f) = do {
-                      i :->: b <- typeofM c f;
-                      typeofM c (subst i (Fix (Lambda i b)) b)
-                    }
+typeofM (c, r) (Bind i v b) = do {
+                                tv <- typeofM (c,r) v;
+                                typeofM (((i,tv):c),r) b
+                              }
+typeofM (c, _) (Id i) = lookup i c
+typeofM _ (Lambda i b) = Just $ TLambda i b NotProvided NotProvided
+typeofM _ (TypedLambda i b d r) = Just $ TLambda i b (Type d) (Type r)
+typeofM (c, r) (App f a) = do {
+                             a' <- typeofM (c,r) a;
+                             (TLambda i b d rt) <- typeofM (c,r) f;
+                             -- Check if function is in a recursion and if so, make sure return type has been provided
+                             let returnType = lookupRecursion r (show b)
+                              in if   d == NotProvided || show d == show (Type a')
+                                 then if   rt == NotProvided
+                                      then typeofM (((i,a'):c), r) b
+                                      else if  returnType == NotFound
+                                           then do {
+                                                  realReturn <- typeofM (((i,a'):c), ((show b, rt):r)) b;
+                                                  if   rt == NotProvided || show rt == show (Type realReturn)
+                                                  then Just realReturn
+                                                  else Nothing  -- Actual return type did not match defined type
+                                                }
+                                           else if   returnType == NotProvided
+                                                then Nothing  -- Recursive functions must have a return type provided
+                                                else toTypeLang returnType
+                                 else Nothing
+                           }
+typeofM c (Fix f d r) = do {
+                          (TLambda i b _ _) <- typeofM c f;
+                          (TLambda i' b' _ _) <- typeofM c b;
+                          typeofM c (TypedLambda i' (subst i (Fix (Lambda i b) d r) b') d r)
+                        }
 typeofM c (Array a) = do {
                         a' <- if length a == 0 then Nothing else typeofM c $ head a;
                         return $ TArray a'
@@ -299,35 +326,49 @@ typeofM c (At i a) = do {
                        return a'
                      }
 typeofM c (Concat l r) = do {
-                       (TArray l') <- typeofM c l;
-                       (TArray r') <- typeofM c r;
-                       if l' == r' then return l' else Nothing
-                     }
+                           (TArray l') <- typeofM c l;
+                           (TArray r') <- typeofM c r;
+                           if l' == r' then return l' else Nothing
+                         }
 typeofM c (Replicate n v) = do {
-                       TNum <- typeofM c n;
-                       v' <- typeofM c v;
-                       return $ TArray v'
-                     }
+                              TNum <- typeofM c n;
+                              v' <- typeofM c v;
+                              return $ TArray v'
+                            }
 typeofM c (First a) = do {
-                       (TArray a') <- typeofM c a;
-                       return a';
-                     }
+                        (TArray a') <- typeofM c a;
+                        return a';
+                      }
 typeofM c (Second a) = do {
-                       (TArray a') <- typeofM c a;
-                       return a';
-                     }
+                         (TArray a') <- typeofM c a;
+                         return a';
+                       }
 typeofM c (Last a) = do {
                        (TArray a') <- typeofM c a;
                        return a';
                      }
 typeofM c (Reverse a) = do {
-                       (TArray a') <- typeofM c a;
-                       return $ TArray a';
-                     }
+                          (TArray a') <- typeofM c a;
+                          return $ TArray a';
+                        }
 typeofM c (Comment _ b) = typeofM c b
 
+
+lookupRecursion :: Recursion -> [Char] -> NULLABLE
+lookupRecursion [] _ = NotFound
+lookupRecursion ((body, returnType) : rest) target = if   body == target
+                                                     then returnType
+                                                     else lookupRecursion rest target
+
+toTypeLang :: NULLABLE -> Maybe TYPELANG
+toTypeLang NotProvided = Nothing
+toTypeLang NotFound = Nothing
+toTypeLang (Type t) = Just t
+
 interpTypeEval :: TERMLANG -> Maybe VALUELANG
-interpTypeEval e = if typeofM [] e == Nothing then Nothing else evalM [] e
+interpTypeEval e = if   typeofM ([], []) e == Nothing
+                   then Nothing
+                   else evalM [] e
 
 
 -- Test utility function
@@ -342,8 +383,13 @@ runTests function tests = separate $ map (\((input, expectedOutput), realOutput)
         expectedOutputString = show expectedOutput
         realOutputString = show realOutput
         pass = expectedOutputString == realOutputString
-        format = (if pass then "[🟩PASS] " else "[🟥FAIL] Input: ") ++ inputString ++ "\n\t  Expected: " ++ expectedOutputString ++ "\n\t  Received: " ++ realOutputString
-    in format
+    in if   pass
+       then ("[🟩PASS] " ++ inputString ++ "\n         Output: " ++ expectedOutputString)
+       else ("[🟥FAIL] " ++ inputString
+                        ++ "\n         Expected: "
+                        ++ expectedOutputString
+                        ++ "\n         Received: "
+                        ++ realOutputString)
   ) $ zip tests $ map (\(a,_) -> function a) tests
 
 theories:: [(TERMLANG, Maybe VALUELANG)]
@@ -444,40 +490,14 @@ theories = [
     Bind "arr" (Array [Num 1,Num 2,Num 3,Num 4,Num 5]) (Reverse (Id "arr")),
     Just (ArrayV [NumV 5,NumV 4,NumV 3,NumV 2,NumV 1])
   ),
-  (App (Fix (Lambda "g" (Lambda "x" (Num 6)))) (Num 3), Just (NumV 6)),
+  (App (Fix (Lambda "g" (Lambda "x" (Num 6))) TNum TNum) (Num 3), Just (NumV 6)),
   (
-    Fix (Lambda "g" (Lambda "x" (Id "g"))),
-    Just (ClosureV "x" (Fix (Lambda "g" (Lambda "x" (Id "g")))) [])
+    Fix (Lambda "g" (Lambda "x" (Id "g"))) TNum TNum,
+    Just (ClosureV "x" (Fix (Lambda "g" (Lambda "x" (Id "g"))) TNum TNum) [])
   ),
   (
-    App (Fix (Lambda "g" (Lambda "x" (Id "g")))) (Num 3),
-    Just (ClosureV "x" (Fix (Lambda "g" (Lambda "x" (Id "g")))) [("x",NumV 3)])
-  ),
-  (
-    App (Fix (Lambda "g" (Lambda "x" (Id "x")))) (Num 42),
+    App (Fix (Lambda "g" (Lambda "x" (Id "x"))) TNum TNum) (Num 42),
     Just (NumV 42)
-  ),
-  (
-    App
-      (Fix
-        (Lambda "g"
-          (Lambda "x"
-            (If (IsZero (Id "x"))
-              (Id "g")
-              (Id "g")
-            )
-          )
-        )
-      )
-      (Num 3),
-    Just (
-      ClosureV "x"
-        (If (IsZero (Id "x"))
-          (Fix (Lambda "g" (Lambda "x" (If (IsZero (Id "x")) (Id "g") (Id "g")))))
-          (Fix (Lambda "g" (Lambda "x" (If (IsZero (Id "x")) (Id "g") (Id "g")))))
-        )
-        [("x",NumV 3)]
-    )
   ),
   (
     App
@@ -489,7 +509,7 @@ theories = [
               (Num 0)
             )
           )
-        )
+        ) TNum TNum
       )
       (Num 0),
     Just (NumV 2)
@@ -503,7 +523,7 @@ theories = [
             (App (Id "g") (Num 0))
           )
         )
-      ),
+      ) TNum TNum,
     Just (
       ClosureV "x"
         (If (IsZero (Id "x"))
@@ -517,7 +537,7 @@ theories = [
                     (App (Id "g") (Num 0))
                   )
                 )
-              )
+              ) TNum TNum
             )
             (Num 0)
           )
@@ -535,7 +555,7 @@ theories = [
               (App (Id "g") (Num 0))
             )
           )
-        )
+        ) TNum TNum
       )
       (Num 0),
     Just (NumV 0)
@@ -559,7 +579,7 @@ theories = [
           )
         )
       )
-    ),
+    ) TNum TNum,
     Just (
       ClosureV "x" (
         If (IsZero (Id "x"))
@@ -579,7 +599,7 @@ theories = [
                         )
                       )
                     )
-                  )
+                  ) TNum TNum
                 )
                 (Minus (Id "x") (Num 1))
               )
@@ -605,7 +625,7 @@ theories = [
       )
     ) (
       App
-        (Fix (Id "factorial"))
+        (Fix (Id "factorial") TNum TNum)
         (Num 3)
     ),
     Just (NumV 1)
@@ -631,7 +651,7 @@ theories = [
       )
     ) (
       App
-        (Fix (Id "factorial"))
+        (Fix (Id "factorial") TNum TNum)
         (Num 3)
     ),
     Just (NumV 6)
@@ -658,25 +678,32 @@ theories = [
       )
     ) (
       Bind "fact"
-        (Fix (Id "factorial"))
-        (App (Id "fact") (Num 3))
+        (Fix (Id "factorial") TNum TNum)
+        (App (Id "fact") (Num 10))
     ),
-    Just (NumV 6)
-  )
+    Just (NumV 3628800)
+  ),
+  -- Optionally, can specify return type explicitly
+  (TypedLambda "x" (Num 0) TNum TNum, Just (ClosureV "x" (Num 0) [])),
+  (App (TypedLambda "x" (Num 0) TNum TNum) (Num 1), Just (NumV 0)),
+  -- Invalid argument type
+  (App (TypedLambda "x" (Num 0) TNum TNum) (Boolean True), Nothing),
+  -- Invalid return type
+  (App (TypedLambda "x" (Boolean True) TNum TNum) (Num 1), Nothing)
   ]
 
 evalM_tests:: [Char]
 -- This is using evalM instead of interpTypeEval, because type checking
 -- of a recursive function causes infinite loop. Need to figure out how
 -- to fix that
-evalM_tests = runTests (\e -> evalM [] e) theories
+evalM_tests = runTests interpTypeEval theories
 
 subst_tests:: [Char]
 subst_tests = runTests (\(i, v, x) -> subst i v x) [
   (
     (
       "g",
-      Fix (Lambda "g" (Lambda "x" (Id "g"))),
+      Fix (Lambda "g" (Lambda "x" (Id "g"))) TNum TNum,
       Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10))
     ),
     Bind "arr" (Replicate (Num 1) (Num 5)) (Plus (First (Id "arr")) (Num 10))
@@ -684,18 +711,18 @@ subst_tests = runTests (\(i, v, x) -> subst i v x) [
   (
     (
       "g",
-      Fix (Lambda "g" (Lambda "x" (Id "g"))),
+      Fix (Lambda "g" (Lambda "x" (Id "g"))) TNum TNum,
       Id "g"
     ),
-    Fix (Lambda "g" (Lambda "x" (Id "g")))
+    Fix (Lambda "g" (Lambda "x" (Id "g"))) TNum TNum
   ),
   (
     (
       "g",
-      Fix (Lambda "g" (Lambda "x" (Id "g"))),
+      Fix (Lambda "g" (Lambda "x" (Id "g"))) TNum TNum,
       Lambda "x" (Id "g")
     ),
-    Lambda "x" (Fix (Lambda "g" (Lambda "x" (Id "g"))))
+    Lambda "x" (Fix (Lambda "g" (Lambda "x" (Id "g"))) TNum TNum)
   ),
   (
     (
@@ -708,7 +735,7 @@ subst_tests = runTests (\(i, v, x) -> subst i v x) [
               (App (Id "g") (Num 1))
             )
           )
-        ),
+        ) TNum TNum,
       Lambda "x"
         (If (IsZero (Id "x"))
           (Num 0)
@@ -726,7 +753,7 @@ subst_tests = runTests (\(i, v, x) -> subst i v x) [
                   (Num 0)
                   (App (Id "g") (Num 1)))
               )
-            )
+            ) TNum TNum
           )
           (Num 1)
         )
